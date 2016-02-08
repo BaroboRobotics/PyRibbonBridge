@@ -95,10 +95,17 @@ def main():
     daemon_proxy.emit_to_server = protocol.write
     protocol.deliver = daemon_proxy.deliver
 
+    daemon_proxy.connect()
+
+    args = daemon_proxy.get_args_obj('sendRobotPing')
+    destination = args.destinations.add()
+    destination.value = 'ABCD'
+    print("PING: ", daemon_proxy.sendRobotPing(args).result())
+
     args = daemon_proxy.get_args_obj('resolveSerialId')
     print(args)
-    args.serialId.value = 'locl'
-    print(daemon_proxy.resolveSerialId(args).result())
+    args.serialId.value = 'LOCL'
+    print("RESOLVE: ", daemon_proxy.resolveSerialId(args).result())
 
     '''
     proxy = SfpRpcProxy()

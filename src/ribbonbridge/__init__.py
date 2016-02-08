@@ -98,8 +98,12 @@ class RpcProxyImpl():
 
     def _process_reply(self, reply_id, reply):
         try:
-            self._open_convos[reply_id].set_result(reply)
-            print('Processed reply {}'.format(reply_id))
+            if reply.type == rpc.Reply.RESULT:
+                self._open_convos[reply_id].set_result(reply.result)
+                print('Processed result {}'.format(reply_id))
+            elif reply.type == rpc.Reply.VERSIONS:
+                self._open_convos[reply_id].set_result(reply.versions)
+                print('Procces reply of type: {}'.format(reply.type))
         except:
             logging.warning(
                     "Received reply to nonexistent conversation: {}"
@@ -138,6 +142,10 @@ class Proxy():
         self._rpc.emit = self.emit_to_server
         self._rpc.event = self._handle_bcast
 
+    def connect(self):
+        self._rpc.get_versions().result()
+        logging.info('Connection established.')
+
     def deliver(self, bytestring):
         '''
         Pass all data incoming from underlying transport to this function.
@@ -162,6 +170,9 @@ class Proxy():
     def get_args_obj(self, procedure_name):
         return self._members[procedure_name].In()
 
+    def get_results_obj(self, procedure_name):
+        return self._members[procedure_name].Result()
+
     def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
         '''
         Handle a call.
@@ -170,9 +181,22 @@ class Proxy():
             pb2_obj = self._members[procedure_name].In()
             for k,v in kwargs.items():
                 setattr(pb2_obj, k, v)
-        return self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
+        fut = self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
+        userfut = concurrent.futures.Future()
+        fut.add_done_callback(
+                functools.partial( self._handle_result,
+                                   self.get_results_obj(procedure_name),
+                                   userfut )
+                )
+        logging.info('Scheduled call to: {}'.format(procedure_name))
+        return userfut
 
     def _handle_bcast(self, procedure_name, pb2_obj):
         if procedure_name in self:
             getattr(self, procedure_name)(pb2_obj)
+
+    def _handle_result(self, rpc_result_obj, userfut, fut):
+        logging.info('Proxy received result.')
+        userfut.set_result(rpc_result_obj.ParseFromString(fut.result().payload))
+
 
