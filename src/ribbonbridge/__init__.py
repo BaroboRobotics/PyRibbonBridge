@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 
+import asyncio
 import concurrent.futures
+import functools
 import importlib.util
 import inspect
-import os
-import sys
-import asyncio
 import itertools
-import threading
 import logging
+import os
 import random
+import sys
+import threading
 
 __path = sys.path
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 from ribbonbridge import rpc_pb2 as rpc
 sys.path = __path
 
-class RpcProxy():
+class RpcProxyImpl():
     def __init__(self, asyncio_loop):
         self._loop = asyncio_loop
         self._request_id = random.randint(100, 32000)
@@ -106,4 +107,72 @@ class RpcProxy():
 
     def _process_bcast(self, broadcast):
         pass
+
+class Proxy():
+    def __init__(self, filename_pb2, asyncio_loop):
+        ''' 
+        Create a Ribbon Bridge Proxy object from a _pb2.py file generated from a
+        .proto.
+        '''
+        self._loop = asyncio_loop
+
+        filepath = os.path.abspath(filename_pb2)
+        sys.path.append(os.path.dirname(filepath))
+
+        basename = os.path.basename(filepath) 
+        modulename = os.path.splitext(basename)[0]
+        spec = importlib.util.spec_from_file_location(modulename,
+                filepath)
+        self.__pb2 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.__pb2)
+        self._members = {}
+
+        print('Creating member functions:')
+        for name, m in inspect.getmembers(self.__pb2):
+            if inspect.isclass(m):
+                if hasattr(m, 'In') and hasattr(m, 'Result'):
+                    self._members[name] = m
+                    print(name)
+
+        self._rpc = RpcProxyImpl(self._loop)
+        self._rpc.emit = self.emit_to_server
+        self._rpc.event = self._handle_bcast
+
+    def deliver(self, bytestring):
+        '''
+        Pass all data incoming from underlying transport to this function.
+        '''
+        self._rpc.deliver(bytestring)
+
+    async def emit_to_server(self, bytestring):
+        '''
+        Overload this function.
+
+        This function should transmit 'bytestring' to the server objects
+        receiver where 'bytestring' is the raw serialized protobuf message.
+        '''
+        pass
+
+    def __getattr__(self, name):
+        if name not in self._members:
+            raise AttributeError('{} is not a method of this RPC proxy.'
+                    .format(name))
+        return functools.partial(self._handle_call, name)
+
+    def get_args_obj(self, procedure_name):
+        return self._members[procedure_name].In()
+
+    def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
+        '''
+        Handle a call.
+        '''
+        if not pb2_obj:
+            pb2_obj = self._members[procedure_name].In()
+            for k,v in kwargs.items():
+                setattr(pb2_obj, k, v)
+        return self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
+
+    def _handle_bcast(self, procedure_name, pb2_obj):
+        if procedure_name in self:
+            getattr(self, procedure_name)(pb2_obj)
 
