@@ -99,7 +99,7 @@ def main():
 
     args = daemon_proxy.get_args_obj('sendRobotPing')
     destination = args.destinations.add()
-    destination.value = 'ABCD'
+    destination.value = 'DGKR'
     print("PING: ", daemon_proxy.sendRobotPing(args).result())
 
     args = daemon_proxy.get_args_obj('resolveSerialId')

@@ -196,7 +196,7 @@ class Proxy():
             getattr(self, procedure_name)(pb2_obj)
 
     def _handle_result(self, rpc_result_obj, userfut, fut):
-        logging.info('Proxy received result.')
-        userfut.set_result(rpc_result_obj.ParseFromString(fut.result().payload))
+        rpc_result_obj.ParseFromString(fut.result().payload)
+        userfut.set_result(rpc_result_obj)
 
 
