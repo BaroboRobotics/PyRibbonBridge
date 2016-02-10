@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 from ribbonbridge import rpc_pb2 as rpc
 sys.path = __path
 
-class RpcProxyImpl():
+class _RpcProxyImpl():
     def __init__(self, asyncio_loop):
         self._loop = asyncio_loop
         self._request_id = random.randint(100, 32000)
@@ -148,7 +148,7 @@ class Proxy():
                     self._members[name] = m
                     print(name)
 
-        self._rpc = RpcProxyImpl(self._loop)
+        self._rpc = _RpcProxyImpl(self._loop)
         self._rpc.emit = self.rb_emit_to_server
         self._rpc.event = self._handle_bcast
 
