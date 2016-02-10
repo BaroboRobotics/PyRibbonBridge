@@ -177,10 +177,10 @@ class Proxy():
                     .format(name))
         return functools.partial(self._handle_call, name)
 
-    def get_args_obj(self, procedure_name):
+    def rb_get_args_obj(self, procedure_name):
         return self._members[procedure_name].In()
 
-    def get_results_obj(self, procedure_name):
+    def rb_get_results_obj(self, procedure_name):
         return self._members[procedure_name].Result()
 
     def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
@@ -195,7 +195,7 @@ class Proxy():
         userfut = concurrent.futures.Future()
         fut.add_done_callback(
                 functools.partial( self._handle_result,
-                                   self.get_results_obj(procedure_name),
+                                   self.rb_get_results_obj(procedure_name),
                                    userfut )
                 )
         logging.info('Scheduled call to: {}'.format(procedure_name))
