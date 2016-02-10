@@ -22,6 +22,7 @@ class RpcProxyImpl():
         self._loop = asyncio_loop
         self._request_id = random.randint(100, 32000)
         self._open_convos = {}
+        self._bcast_handlers = {}
 
     def _new_id(self):
         self._request_id = 0xffffffff & (self._request_id+1)
@@ -30,7 +31,6 @@ class RpcProxyImpl():
     def fire(self, procedure_name, payload):
         '''
         Fire a procedure 'procedure name' with bytestring payload 'payload'.
-
         '''
         r = rpc.Request()
         r.type = rpc.Request.FIRE
@@ -39,6 +39,7 @@ class RpcProxyImpl():
         cm = rpc.ClientMessage()
         cm.id = self._new_id()
         cm.request.CopyFrom(r)
+        logging.info("Scheduled 'FIRE' op with id {}".format(cm.id))
         asyncio.run_coroutine_threadsafe(
                 self.emit(cm.SerializeToString()),
                 self._loop )
@@ -51,7 +52,6 @@ class RpcProxyImpl():
         r.type = rpc.Request.CONNECT
         cm = rpc.ClientMessage()
         cm.id = self._new_id()
-        logging.info('New VERSIONS message with id {}'.format(cm.id))
         cm.request.CopyFrom(r)
         asyncio.run_coroutine_threadsafe(
                 self.emit(cm.SerializeToString()),
@@ -69,20 +69,26 @@ class RpcProxyImpl():
         '''
         pass
 
+    def add_broadcast_handler(self, procedure_name, cb):
+        self._bcast_handlers[self.hash(procedure_name)] = cb
+
     def deliver(self, bytestring):
         '''
         Pass all data from underlying transport to this function.
         '''
         r = rpc.ServerMessage()
         r.ParseFromString(bytestring)
-        logging.info('Received message from server: {}'.format(r.type))
-        logging.info(str(r))
         if r.type == rpc.ServerMessage.REPLY:
+            logging.info('Processing REPLY with id {}'.format(r.inReplyTo))
             self._process_reply(r.inReplyTo, r.reply)
         elif r.type == rpc.ServerMessage.BROADCAST:
+            logging.info('Processing BROADCAST')
             self._process_bcast(r.broadcast)
 
     def hash(self, s):
+        '''
+        This function hashes plaintext procedure names into a 32 bit integers.
+        '''
         h = 0
         for c in s:
             char = c.encode('ascii')[0]
@@ -110,7 +116,11 @@ class RpcProxyImpl():
                     .format(reply_id))
 
     def _process_bcast(self, broadcast):
-        pass
+        try:
+            self._bcast_handlers[broadcast.id](broadcast.payload)
+        except KeyError:
+            logging.warning(
+                    "Received unhandled broadcast. ID:{}".format(broadcast.id))
 
 class Proxy():
     def __init__(self, filename_pb2, asyncio_loop):
@@ -139,20 +149,20 @@ class Proxy():
                     print(name)
 
         self._rpc = RpcProxyImpl(self._loop)
-        self._rpc.emit = self.emit_to_server
+        self._rpc.emit = self.rb_emit_to_server
         self._rpc.event = self._handle_bcast
 
-    def connect(self):
+    def rb_connect(self):
         self._rpc.get_versions().result()
         logging.info('Connection established.')
 
-    def deliver(self, bytestring):
+    def rb_deliver(self, bytestring):
         '''
         Pass all data incoming from underlying transport to this function.
         '''
         self._rpc.deliver(bytestring)
 
-    async def emit_to_server(self, bytestring):
+    async def rb_emit_to_server(self, bytestring):
         '''
         Overload this function.
 

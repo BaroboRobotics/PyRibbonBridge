@@ -77,7 +77,7 @@ class SfpProxy(rb.Proxy):
     def set_protocol(self, protocol):
         self._protocol = protocol
 
-    async def emit_to_server(self, bytestring):
+    async def rb_emit_to_server(self, bytestring):
         self._protocol.write(bytestring)
 
 def main():
@@ -92,10 +92,10 @@ def main():
             '/home/dko/Projects/Barobo/PyLinkbot/rpc/daemon_pb2.py',
             io.loop)
     daemon_proxy.set_protocol(protocol)
-    daemon_proxy.emit_to_server = protocol.write
-    protocol.deliver = daemon_proxy.deliver
+    #daemon_proxy.rb_emit_to_server = protocol.write
+    protocol.deliver = daemon_proxy.rb_deliver
 
-    daemon_proxy.connect()
+    daemon_proxy.rb_connect()
 
     args = daemon_proxy.get_args_obj('sendRobotPing')
     destination = args.destinations.add()
