@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
-from distutils.core import setup, Extension
+from setuptools import setup
+
+import sys
+if sys.version_info < (3, 5):
+    print('Python 3.5 or higher is required to use PyRibbonBridge.')
+    sys.exit(1)
 
 setup (name = 'PyRibbonBridge',
        author = 'David Ko',
@@ -11,4 +16,5 @@ setup (name = 'PyRibbonBridge',
        package_dir = {'':'src'},
        packages = ['ribbonbridge'],
        url = 'http://github.com/BaroboRobotics/PyRibbonBridge',
+       install_requires=['protobuf>=3.0.0b2'],
        )
