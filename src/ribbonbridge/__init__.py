@@ -106,10 +106,8 @@ class _RpcProxyImpl():
         try:
             if reply.type == rpc.Reply.RESULT:
                 self._open_convos[reply_id].set_result(reply.result)
-                print('Processed result {}'.format(reply_id))
             elif reply.type == rpc.Reply.VERSIONS:
                 self._open_convos[reply_id].set_result(reply.versions)
-                print('Procces reply of type: {}'.format(reply.type))
         except:
             logging.warning(
                     "Received reply to nonexistent conversation: {}"
@@ -141,12 +139,10 @@ class Proxy():
         spec.loader.exec_module(self.__pb2)
         self._members = {}
 
-        print('Creating member functions:')
         for name, m in inspect.getmembers(self.__pb2):
             if inspect.isclass(m):
                 if hasattr(m, 'In') and hasattr(m, 'Result'):
                     self._members[name] = m
-                    print(name)
 
         self._rpc = _RpcProxyImpl(self._loop)
         self._rpc.emit = self.rb_emit_to_server
@@ -155,6 +151,9 @@ class Proxy():
     def rb_connect(self):
         self._rpc.get_versions().result()
         logging.info('Connection established.')
+
+    def rb_procedures(self):
+        return self._members.keys()
 
     def rb_deliver(self, bytestring):
         '''
