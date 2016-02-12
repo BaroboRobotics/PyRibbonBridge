@@ -67,8 +67,8 @@ class _RpcProxyImpl():
         '''
         pass
 
-    def add_broadcast_handler(self, procedure_name, cb):
-        self._bcast_handlers[self.hash(procedure_name)] = cb
+    def add_broadcast_handler(self, procedure_name, coroutine):
+        self._bcast_handlers[self.hash(procedure_name)] = coroutine
 
     async def deliver(self, bytestring):
         '''
@@ -94,19 +94,15 @@ class _RpcProxyImpl():
             h = (101*h + char) & 0xffffffff
         return h
 
-    async def event(self, name, data):
-        '''
-        Overload this function. This callback is invoked when the RPC proxy
-        receives a broadcast from the corresponding RPC server.
-        '''
-        pass
-
     async def _process_reply(self, reply_id, reply):
         try:
             if reply.type == rpc.Reply.RESULT:
-                self._open_convos[reply_id].set_result(reply.result)
+                fut = self._open_convos.pop(reply_id)
+                fut.set_result(reply.result)
+                
             elif reply.type == rpc.Reply.VERSIONS:
-                self._open_convos[reply_id].set_result(reply.versions)
+                fut = self._open_convos.pop(reply_id)
+                fut.set_result(reply.versions)
         except:
             logging.warning(
                     "Received reply to nonexistent conversation: {}"
@@ -114,10 +110,14 @@ class _RpcProxyImpl():
 
     async def _process_bcast(self, broadcast):
         try:
-            self._bcast_handlers[broadcast.id](broadcast.payload)
+            logging.info('Received bcast event.')
+            await self._bcast_handlers[broadcast.id](broadcast.id, broadcast.payload)
+            logging.info('bcast event handled.')
         except KeyError:
             logging.warning(
                     "Received unhandled broadcast. ID:{}".format(broadcast.id))
+        except Exception as e:
+            logging.error("Could not handle bcast event! {}".format(e))
 
 class Proxy():
     def __init__(self, filename_pb2):
@@ -135,21 +135,34 @@ class Proxy():
         self.__pb2 = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.__pb2)
         self._members = {}
-
-        for name, m in inspect.getmembers(self.__pb2):
-            if inspect.isclass(m):
-                if hasattr(m, 'In') and hasattr(m, 'Result'):
-                    self._members[name] = m
+        self._bcast_members = {}
+        self._bcast_handlers = {}
 
         self._rpc = _RpcProxyImpl()
         self._rpc.emit = self.rb_emit_to_server
-        self._rpc.event = self._handle_bcast
+
+        for name, m in inspect.getmembers(self.__pb2):
+            if inspect.isclass(m):
+                self._bcast_members[name] = m
+                if hasattr(m, 'In') and hasattr(m, 'Result'):
+                    self._members[name] = m
 
     async def rb_connect(self):
         fut = await self._rpc.get_versions()
         logging.info('Waiting for versions...')
         versions = await fut
         logging.info('Connection established: {}'.format(versions))
+
+    def rb_add_broadcast_handler(self, procedure_name, coroutine):
+        self._bcast_handlers[procedure_name] = coroutine
+        self._rpc.add_broadcast_handler(
+                procedure_name, 
+                asyncio.coroutine(
+                    functools.partial(
+                        self._handle_bcast,
+                        procedure_name )
+                    )
+                )
 
     def rb_procedures(self):
         return self._members.keys()
@@ -182,6 +195,9 @@ class Proxy():
     def rb_get_results_obj(self, procedure_name):
         return self._members[procedure_name].Result()
 
+    def rb_get_bcast_obj(self, procedure_name):
+        return self._bcast_members[procedure_name]()
+
     async def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
         '''
         Handle a call.
@@ -201,9 +217,17 @@ class Proxy():
         logging.info('Scheduled call to: {}'.format(procedure_name))
         return user_fut
 
-    async def _handle_bcast(self, procedure_name, pb2_obj):
-        if procedure_name in self:
-            await getattr(self, procedure_name)(pb2_obj)
+    async def _handle_bcast(self, procedure_name, bcast_id, payload):
+        try:
+            # Parse the payload
+            pb_obj = self.rb_get_bcast_obj(procedure_name)
+            pb_obj.ParseFromString(payload)
+            await self._bcast_handlers[procedure_name](pb_obj)
+        except KeyError:
+            logging.info('Warning: Could not handle broadcast: {}'
+                    .format(procedure_name))
+        except Exception as e:
+            logging.error('Failed to handle bcast: {}'.format(e))
 
     def _handle_reply(self, procedure_name, user_fut, fut):
         result_obj = self.rb_get_results_obj(procedure_name)
