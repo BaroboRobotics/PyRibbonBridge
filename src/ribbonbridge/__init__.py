@@ -70,6 +70,9 @@ class _RpcProxyImpl():
     def add_broadcast_handler(self, procedure_name, coroutine):
         self._bcast_handlers[self.hash(procedure_name)] = coroutine
 
+    def remove_broadcast_handler(self, procedure_name):
+        del self._bcast_handlers[self.hash(procedure_name)] 
+
     async def deliver(self, bytestring):
         '''
         Pass all data from underlying transport to this function.
@@ -164,6 +167,10 @@ class Proxy():
                     )
                 )
 
+    def rb_remove_broadcast_handler(self, procedure_name):
+        del self._bcast_handlers[procedure_name]
+        self._rpc.remove_broadcast_handler(procedure_name)
+
     def rb_procedures(self):
         return self._members.keys()
 
@@ -227,7 +234,7 @@ class Proxy():
             logging.info('Warning: Could not handle broadcast: {}'
                     .format(procedure_name))
         except Exception as e:
-            logging.error('Failed to handle bcast: {}'.format(e))
+            logging.error('Failed to handle {} bcast: {}'.format(procedure_name, e))
 
     def _handle_reply(self, procedure_name, user_fut, fut):
         result_obj = self.rb_get_results_obj(procedure_name)
