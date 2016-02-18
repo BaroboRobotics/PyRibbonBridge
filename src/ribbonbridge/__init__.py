@@ -16,19 +16,20 @@ for a Python proxy to call procedures on a low level C server, this might be the
 right place for you.
 
 Synopsis
-========
+--------
 
 PyRibbonBridge uses NanoPB under the hood to pass messages between the RPC proxy
 and RPC server. Read about NanoPB here: http://koti.kapsi.fi/jpa/nanopb/ .
 Currently, as of version 0.0.2, PyRibbonBridge is only able to implement RPC
-proxies; not servers.
+proxies; not servers. For information on how to create a ribbon-bridge RPC
+server, please visit https://github.com/BaroboRobotics/ribbon-bridge. 
 
 The basic usage of this package is as follows:
 First, a NanoPB ".proto" file is created which describes the procedures which
-        may be called on the server. Each procedure will have a corresponding
-        nanopb message type with a nested "In" message and "Result" message.
-        Here is a simple example of a server that implements a single procedure
-        called "func" that takes an integer as an argument and returns a float::
+may be called on the server. Each procedure will have a corresponding
+nanopb message type with a nested "In" message and "Result" message.
+Here is a simple example of a server that implements a single procedure
+called "func" that takes an integer as an argument and returns a float::
 
     message func {
         message In {
@@ -39,7 +40,7 @@ First, a NanoPB ".proto" file is created which describes the procedures which
         }
     }
 
-The names of the arguments an results are arbitrary. The names "In" and
+The names of the arguments and results are arbitrary. The names "In" and
 "Result" are special, and the existence of the two signal to PyRibbonBridge that
 "func" is an RPC.
 
