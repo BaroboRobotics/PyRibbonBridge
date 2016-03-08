@@ -41,7 +41,6 @@ called "func" that takes an integer as an argument and returns a float::
     }
 
 The names of the arguments and results are arbitrary. The names "In" and
-"Result" are special, and the existence of the two signal to PyRibbonBridge that
 "func" is an RPC.
 
 Next, the ".proto" file must be compiled into a ".py" file by using the tools
@@ -94,6 +93,20 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 from ribbonbridge import rpc_pb2 as rpc
 sys.path = __path
 
+def _chain_futures(fut1, fut2, conv=lambda x: x):
+    def handler(fut2, conv, fut1):
+        if fut1.cancelled():
+            fut2.cancel()
+        else:
+            fut2.set_result( conv(fut1.result()) )
+
+    fut1.add_done_callback(
+            functools.partial(
+                handler,
+                fut2,
+                conv )
+            )
+
 class _RpcProxyImpl():
     def __init__(self):
         self._request_id = random.randint(100, 32000)
@@ -103,6 +116,13 @@ class _RpcProxyImpl():
     def _new_id(self):
         self._request_id = 0xffffffff & (self._request_id+1)
         return self._request_id
+
+    def close(self):
+        # Cancel all waiting futures
+        for key, fut in self._open_convos.items():
+            if not fut.done():
+                fut.cancel()
+            del self._open_convos[key]
 
     async def fire(self, procedure_name, payload):
         '''
@@ -127,9 +147,7 @@ class _RpcProxyImpl():
         cm = rpc.ClientMessage()
         cm.id = self._new_id()
         cm.request.CopyFrom(r)
-        logging.info('EMITTING...')
         await self.emit(cm.SerializeToString())
-        logging.info('EMITTING... DONE')
         fut = asyncio.Future()
         self._open_convos[cm.id] = fut
         logging.info('Scheduled call to get_versions()...')
@@ -154,7 +172,6 @@ class _RpcProxyImpl():
         '''
         Pass all data from underlying transport to this function.
         '''
-        logging.info('Bytestring delivered to proxy impl from transport.')
         r = rpc.ServerMessage()
         r.ParseFromString(bytestring)
         if r.type == rpc.ServerMessage.REPLY:
@@ -190,9 +207,7 @@ class _RpcProxyImpl():
 
     async def _process_bcast(self, broadcast):
         try:
-            logging.info('Received bcast event.')
             await self._bcast_handlers[broadcast.id](broadcast.id, broadcast.payload)
-            logging.info('bcast event handled.')
         except KeyError:
             logging.warning(
                     "Received unhandled broadcast. ID:{}".format(broadcast.id))
@@ -232,7 +247,6 @@ class Proxy():
         Handshake with the server object.
         '''
         fut = await self._rpc.get_versions()
-        logging.info('Waiting for versions...')
         versions = await fut
         logging.info('Connection established: {}'.format(versions))
 
@@ -258,6 +272,12 @@ class Proxy():
                     )
                 )
 
+    def rb_close(self):
+        '''
+        Gracefully close all open conversations
+        '''
+        self._rpc.close()
+
     def rb_remove_broadcast_handler(self, procedure_name):
         '''
         Remove a broadcast handler previously added by 
@@ -277,7 +297,7 @@ class Proxy():
         '''
         Pass all data incoming from underlying transport to this function.
         '''
-        logging.info('Bytestring delivered to proxy from transport.')
+        logging.info('{} bytes delivered from transport.'.format(len(bytestring)))
         await self._rpc.deliver(bytestring)
 
     async def rb_emit_to_server(self, bytestring):
@@ -323,11 +343,10 @@ class Proxy():
                 setattr(pb2_obj, k, v)
         result = await self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
         user_fut = asyncio.Future()
-        result.add_done_callback(
+        _chain_futures(result, user_fut, 
                 functools.partial(
                     self._handle_reply,
-                    procedure_name,
-                    user_fut)
+                    procedure_name)
                 )
         logging.info('Scheduled call to: {}'.format(procedure_name))
         return user_fut
@@ -344,9 +363,9 @@ class Proxy():
         except Exception as e:
             logging.error('Failed to handle {} bcast: {}'.format(procedure_name, e))
 
-    def _handle_reply(self, procedure_name, user_fut, fut):
+    def _handle_reply(self, procedure_name, result):
         result_obj = self.rb_get_results_obj(procedure_name)
-        result_obj.ParseFromString(fut.result().payload)
-        user_fut.set_result(result_obj)
+        result_obj.ParseFromString(result.payload)
+        return result_obj
 
 
