@@ -41,7 +41,6 @@ called "func" that takes an integer as an argument and returns a float::
     }
 
 The names of the arguments and results are arbitrary. The names "In" and
-"Result" are special, and the existence of the two signal to PyRibbonBridge that
 "func" is an RPC.
 
 Next, the ".proto" file must be compiled into a ".py" file by using the tools
@@ -123,7 +122,7 @@ class _RpcProxyImpl():
         for key, fut in self._open_convos.items():
             if not fut.done():
                 fut.cancel()
-        self._open_convos.clear()
+            del self._open_convos[key]
 
     async def fire(self, procedure_name, payload):
         '''
@@ -298,6 +297,7 @@ class Proxy():
         '''
         Pass all data incoming from underlying transport to this function.
         '''
+        logging.info('{} bytes delivered from transport.'.format(len(bytestring)))
         await self._rpc.deliver(bytestring)
 
     async def rb_emit_to_server(self, bytestring):
