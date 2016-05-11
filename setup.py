@@ -3,8 +3,8 @@
 from setuptools import setup
 
 import sys
-if sys.version_info < (3, 5):
-    print('Python 3.5 or higher is required to use PyRibbonBridge.')
+if sys.version_info < (3, 4):
+    print('Python 3.4 or higher is required to use PyRibbonBridge.')
     sys.exit(1)
 
 setup (name = 'PyRibbonBridge',

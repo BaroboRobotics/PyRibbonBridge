@@ -231,9 +231,13 @@ class Proxy():
 
         basename = os.path.basename(filepath) 
         modulename = os.path.splitext(basename)[0]
-        spec = importlib.util.spec_from_file_location(modulename,
-                filepath)
-        self.__pb2 = importlib.util.module_from_spec(spec)
+        if sys.version_info > (3,4):
+            spec = importlib.util.spec_from_file_location(modulename,
+                    filepath)
+            self.__pb2 = importlib.util.module_from_spec(spec)
+        else:
+            from importlib.machinery import SourceFileLoader
+            self.__pb2 = SourceFileLoader(modulename, filepath).load_module()
         spec.loader.exec_module(self.__pb2)
         self._members = {}
         self._bcast_members = {}
