@@ -3,14 +3,14 @@
 from setuptools import setup
 
 import sys
-if sys.version_info < (3, 5):
-    print('Python 3.5 or higher is required to use PyRibbonBridge.')
+if sys.version_info < (3, 4):
+    print('Python 3.4 or higher is required to use PyRibbonBridge.')
     sys.exit(1)
 
 setup (name = 'PyRibbonBridge',
        author = 'David Ko',
        author_email = 'david@barobo.com',
-       version = '0.0.5',
+       version = '0.0.6',
        description = "This is a pure Python implementation of ribbon-bridge: An "
        "RPC Framework http://github.com/BaroboRobotics/ribbon-bridge",
        package_dir = {'':'src'},

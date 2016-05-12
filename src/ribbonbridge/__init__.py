@@ -124,7 +124,8 @@ class _RpcProxyImpl():
                 fut.cancel()
             del self._open_convos[key]
 
-    async def fire(self, procedure_name, payload):
+    @asyncio.coroutine
+    def fire(self, procedure_name, payload):
         '''
         Fire a procedure 'procedure name' with bytestring payload 'payload'.
         '''
@@ -136,24 +137,26 @@ class _RpcProxyImpl():
         cm.id = self._new_id()
         cm.request.CopyFrom(r)
         logging.info("Scheduled 'FIRE' op with id {}".format(cm.id))
-        await self.emit(cm.SerializeToString())
+        yield from self.emit(cm.SerializeToString())
         fut = asyncio.Future()
         self._open_convos[cm.id] = fut
         return fut
 
-    async def get_versions(self):
+    @asyncio.coroutine
+    def get_versions(self):
         r = rpc.Request()
         r.type = rpc.Request.CONNECT
         cm = rpc.ClientMessage()
         cm.id = self._new_id()
         cm.request.CopyFrom(r)
-        await self.emit(cm.SerializeToString())
+        yield from self.emit(cm.SerializeToString())
         fut = asyncio.Future()
         self._open_convos[cm.id] = fut
         logging.info('Scheduled call to get_versions()...')
         return fut
 
-    async def emit(self, bytestring):
+    @asyncio.coroutine
+    def emit(self, bytestring):
         '''
         Overload this function.
 
@@ -168,7 +171,8 @@ class _RpcProxyImpl():
     def remove_broadcast_handler(self, procedure_name):
         del self._bcast_handlers[self.hash(procedure_name)] 
 
-    async def deliver(self, bytestring):
+    @asyncio.coroutine
+    def deliver(self, bytestring):
         '''
         Pass all data from underlying transport to this function.
         '''
@@ -176,10 +180,10 @@ class _RpcProxyImpl():
         r.ParseFromString(bytestring)
         if r.type == rpc.ServerMessage.REPLY:
             logging.info('Processing REPLY with id {}'.format(r.inReplyTo))
-            await self._process_reply(r.inReplyTo, r.reply)
+            yield from self._process_reply(r.inReplyTo, r.reply)
         elif r.type == rpc.ServerMessage.BROADCAST:
             logging.info('Processing BROADCAST')
-            await self._process_bcast(r.broadcast)
+            yield from self._process_bcast(r.broadcast)
 
     def hash(self, s):
         '''
@@ -191,7 +195,8 @@ class _RpcProxyImpl():
             h = (101*h + char) & 0xffffffff
         return h
 
-    async def _process_reply(self, reply_id, reply):
+    @asyncio.coroutine
+    def _process_reply(self, reply_id, reply):
         try:
             if reply.type == rpc.Reply.RESULT:
                 fut = self._open_convos.pop(reply_id)
@@ -205,9 +210,10 @@ class _RpcProxyImpl():
                     "Received reply to nonexistent conversation: {}"
                     .format(reply_id))
 
-    async def _process_bcast(self, broadcast):
+    @asyncio.coroutine
+    def _process_bcast(self, broadcast):
         try:
-            await self._bcast_handlers[broadcast.id](broadcast.id, broadcast.payload)
+            yield from self._bcast_handlers[broadcast.id](broadcast.id, broadcast.payload)
         except KeyError:
             logging.warning(
                     "Received unhandled broadcast. ID:{}".format(broadcast.id))
@@ -221,14 +227,19 @@ class Proxy():
         .proto.
         '''
         filepath = os.path.abspath(filename_pb2)
+        logging.info('Searching for pb2 file at: ' + filepath)
         sys.path.append(os.path.dirname(filepath))
 
         basename = os.path.basename(filepath) 
         modulename = os.path.splitext(basename)[0]
-        spec = importlib.util.spec_from_file_location(modulename,
-                filepath)
-        self.__pb2 = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.__pb2)
+        if sys.version_info >= (3,5):
+            spec = importlib.util.spec_from_file_location(modulename,
+                    filepath)
+            self.__pb2 = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(self.__pb2)
+        else:
+            from importlib.machinery import SourceFileLoader
+            self.__pb2 = SourceFileLoader(modulename, filepath).load_module()
         self._members = {}
         self._bcast_members = {}
         self._bcast_handlers = {}
@@ -242,12 +253,13 @@ class Proxy():
                 if hasattr(m, 'In') and hasattr(m, 'Result'):
                     self._members[name] = m
 
-    async def rb_connect(self):
+    @asyncio.coroutine
+    def rb_connect(self):
         '''
         Handshake with the server object.
         '''
-        fut = await self._rpc.get_versions()
-        versions = await fut
+        fut = yield from self._rpc.get_versions()
+        versions = yield from fut
         logging.info('Connection established: {}'.format(versions))
 
     def rb_add_broadcast_handler(self, procedure_name, coroutine):
@@ -293,14 +305,16 @@ class Proxy():
         '''
         return self._members.keys()
 
-    async def rb_deliver(self, bytestring):
+    @asyncio.coroutine
+    def rb_deliver(self, bytestring):
         '''
         Pass all data incoming from underlying transport to this function.
         '''
         logging.info('{} bytes delivered from transport.'.format(len(bytestring)))
-        await self._rpc.deliver(bytestring)
+        yield from self._rpc.deliver(bytestring)
 
-    async def rb_emit_to_server(self, bytestring):
+    @asyncio.coroutine
+    def rb_emit_to_server(self, bytestring):
         '''
         Overload this function.
 
@@ -333,7 +347,8 @@ class Proxy():
     def rb_get_bcast_obj(self, procedure_name):
         return self._bcast_members[procedure_name]()
 
-    async def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
+    @asyncio.coroutine
+    def _handle_call(self, procedure_name, pb2_obj=None, **kwargs):
         '''
         Handle a call.
         '''
@@ -341,7 +356,7 @@ class Proxy():
             pb2_obj = self._members[procedure_name].In()
             for k,v in kwargs.items():
                 setattr(pb2_obj, k, v)
-        result = await self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
+        result = yield from self._rpc.fire(procedure_name, pb2_obj.SerializeToString())
         user_fut = asyncio.Future()
         _chain_futures(result, user_fut, 
                 functools.partial(
@@ -351,12 +366,13 @@ class Proxy():
         logging.info('Scheduled call to: {}'.format(procedure_name))
         return user_fut
 
-    async def _handle_bcast(self, procedure_name, bcast_id, payload):
+    @asyncio.coroutine
+    def _handle_bcast(self, procedure_name, bcast_id, payload):
         try:
             # Parse the payload
             pb_obj = self.rb_get_bcast_obj(procedure_name)
             pb_obj.ParseFromString(payload)
-            await self._bcast_handlers[procedure_name](pb_obj)
+            yield from self._bcast_handlers[procedure_name](pb_obj)
         except KeyError:
             logging.info('Warning: Could not handle broadcast: {}'
                     .format(procedure_name))
