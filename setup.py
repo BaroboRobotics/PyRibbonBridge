@@ -10,7 +10,7 @@ if sys.version_info < (3, 4):
 setup (name = 'PyRibbonBridge',
        author = 'David Ko',
        author_email = 'david@barobo.com',
-       version = '0.0.5',
+       version = '0.0.6',
        description = "This is a pure Python implementation of ribbon-bridge: An "
        "RPC Framework http://github.com/BaroboRobotics/ribbon-bridge",
        package_dir = {'':'src'},
