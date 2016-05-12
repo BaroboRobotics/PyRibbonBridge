@@ -137,7 +137,7 @@ class _RpcProxyImpl():
         cm.id = self._new_id()
         cm.request.CopyFrom(r)
         logging.info("Scheduled 'FIRE' op with id {}".format(cm.id))
-        self.emit(cm.SerializeToString())
+        yield from self.emit(cm.SerializeToString())
         fut = asyncio.Future()
         self._open_convos[cm.id] = fut
         return fut
@@ -227,18 +227,19 @@ class Proxy():
         .proto.
         '''
         filepath = os.path.abspath(filename_pb2)
+        logging.info('Searching for pb2 file at: ' + filepath)
         sys.path.append(os.path.dirname(filepath))
 
         basename = os.path.basename(filepath) 
         modulename = os.path.splitext(basename)[0]
-        if sys.version_info > (3,4):
+        if sys.version_info >= (3,5):
             spec = importlib.util.spec_from_file_location(modulename,
                     filepath)
             self.__pb2 = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(self.__pb2)
         else:
             from importlib.machinery import SourceFileLoader
             self.__pb2 = SourceFileLoader(modulename, filepath).load_module()
-        spec.loader.exec_module(self.__pb2)
         self._members = {}
         self._bcast_members = {}
         self._bcast_handlers = {}
