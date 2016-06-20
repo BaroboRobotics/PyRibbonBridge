@@ -224,7 +224,7 @@ class _RpcProxyImpl():
         try:
             yield from self._bcast_handlers[broadcast.id](broadcast.id, broadcast.payload)
         except KeyError:
-            self.logger.warning(
+            self.logger.debug(
                     "Received unhandled broadcast. ID:{}".format(broadcast.id))
         except Exception as e:
             self.logger.error("Could not handle bcast event! {}".format(e))
