@@ -228,7 +228,7 @@ class _RpcProxyImpl():
                 self.logger.warning("Warning: Unknown reply type: " + str(reply.type))
                 self.logger.warning(str(reply))
         except:
-            self.logger.warning(
+            self.logger.info(
                     "Received reply to nonexistent conversation: {}"
                     .format(reply_id))
 
