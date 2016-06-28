@@ -93,6 +93,16 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 from ribbonbridge import rpc_pb2 as rpc
 sys.path = __path
 
+def rb_hash(s):
+    '''
+    This function hashes plaintext procedure names into a 32 bit integers.
+    '''
+    h = 0
+    for c in s:
+        char = c.encode('ascii')[0]
+        h = (101*h + char) & 0xffffffff
+    return h
+
 def _chain_futures(fut1, fut2, conv=lambda x: x):
     def handler(fut2, conv, fut1):
         if fut1.cancelled():
@@ -135,7 +145,7 @@ class _RpcProxyImpl():
         '''
         r = rpc.Request()
         r.type = rpc.Request.FIRE
-        r.fire.id = self.hash(procedure_name)
+        r.fire.id = rb_hash(procedure_name)
         r.fire.payload = payload
         cm = rpc.ClientMessage()
         cm.id = self._new_id()
@@ -156,7 +166,20 @@ class _RpcProxyImpl():
         yield from self.emit(cm.SerializeToString())
         fut = asyncio.Future()
         self._open_convos[cm.id] = fut
-        self.logger.info('Scheduled call to get_versions()...')
+        self.logger.info('Scheduled call to rpc.get_versions()...')
+        return fut
+
+    @asyncio.coroutine
+    def disconnect(self):
+        r = rpc.Request()
+        r.type = rpc.Request.DISCONNECT
+        cm = rpc.ClientMessage()
+        cm.id = self._new_id()
+        cm.request.CopyFrom(r)
+        yield from self.emit(cm.SerializeToString())
+        fut = asyncio.Future()
+        self._open_convos[cm.id] = fut
+        self.logger.info('Scheduled call to rpc.disconnect()...')
         return fut
 
     @asyncio.coroutine
@@ -170,10 +193,10 @@ class _RpcProxyImpl():
         pass
 
     def add_broadcast_handler(self, procedure_name, coroutine):
-        self._bcast_handlers[self.hash(procedure_name)] = coroutine
+        self._bcast_handlers[rb_hash(procedure_name)] = coroutine
 
     def remove_broadcast_handler(self, procedure_name):
-        del self._bcast_handlers[self.hash(procedure_name)] 
+        del self._bcast_handlers[rb_hash(procedure_name)] 
 
     @asyncio.coroutine
     def deliver(self, bytestring):
@@ -188,16 +211,6 @@ class _RpcProxyImpl():
         elif r.type == rpc.ServerMessage.BROADCAST:
             self.logger.info('Processing BROADCAST')
             yield from self._process_bcast(r.broadcast)
-
-    def hash(self, s):
-        '''
-        This function hashes plaintext procedure names into a 32 bit integers.
-        '''
-        h = 0
-        for c in s:
-            char = c.encode('ascii')[0]
-            h = (101*h + char) & 0xffffffff
-        return h
 
     @asyncio.coroutine
     def _process_reply(self, reply_id, reply):
@@ -215,7 +228,7 @@ class _RpcProxyImpl():
                 self.logger.warning("Warning: Unknown reply type: " + str(reply.type))
                 self.logger.warning(str(reply))
         except:
-            self.logger.warning(
+            self.logger.info(
                     "Received reply to nonexistent conversation: {}"
                     .format(reply_id))
 
@@ -275,6 +288,11 @@ class Proxy():
         fut = yield from self._rpc.get_versions()
         versions = yield from fut
         self.logger.info('Connection established: {}'.format(versions))
+
+    @asyncio.coroutine
+    def rb_disconnect(self):
+        fut = yield from self._rpc.disconnect()
+        return fut
 
     def rb_add_broadcast_handler(self, procedure_name, coroutine):
         '''
@@ -398,4 +416,77 @@ class Proxy():
         result_obj.ParseFromString(result.payload)
         return result_obj
 
+class Server():
+    def __init__(self, logger=None):
+        ''' 
+        Create a Ribbon Bridge Proxy object from a _pb2.py file generated from a
+        .proto.
+        '''
+        if logger:
+            self.logger = logger
+        else:
+            self.logger = logging.getLogger(__name__)
 
+        self._members = {}
+        self._bcast_members = {}
+        self._bcast_handlers = {}
+        for m in dir(self):
+            self._members[rb_hash(m)] = m
+
+    @asyncio.coroutine
+    def inbox(self, data):
+        ''' Data heading towards the server. These should be processed and the
+            corresponding member function should be called. '''
+        cm = rpc.ClientMessage()
+        cm.ParseFromString(data)
+
+        request_handlers = { rpc.Request.CONNECT : self._handle_connect,
+                             rpc.Request.DISCONNECT : self._handle_disconnect,
+                             rpc.Request.FIRE : self._handle_fire }
+
+        reply = yield from request_handlers[cm.request.type](cm.request, cm.id)
+        yield from self.deliver(reply)
+    
+    @asyncio.coroutine
+    def deliver(self, data):
+        raise NotImplementedError(
+            '''Override this function so that it delivers the <data> argument
+            to whatever transport the inbox is connected to. '''
+            )
+    
+    @asyncio.coroutine    
+    def _handle_connect(self, request, request_id):
+        # Return the rpc version
+        reply = rpc.ServerMessage()
+        reply.type = rpc.ServerMessage.REPLY
+        reply.inReplyTo = request_id
+        reply.reply.versions.rpc.major = 0
+        reply.reply.versions.rpc.minor = 3
+        reply.reply.versions.rpc.patch = 0
+        reply.reply.versions.interface.major = 0
+        reply.reply.versions.interface.minor = 2
+        reply.reply.versions.interface.patch = 2
+        reply.reply.type = rpc.Reply.VERSIONS
+        return reply.SerializeToString()
+
+    @asyncio.coroutine
+    def _handle_disconnect(self, request, request_id):
+        raise NotImplementedError
+
+    @asyncio.coroutine
+    def _handle_fire(self, request, request_id):
+        try:
+            fname = self._members[request.fire.id]
+        except KeyError:
+            raise NotImplementedError(
+                '''Unable to handle FIRE request: member with component id {}
+                is not implemented.'''.format(request.fire.id) )
+
+        result_payload = yield from getattr(self, fname)(request.fire.payload)
+        reply = rpc.ServerMessage()
+        reply.type = rpc.ServerMessage.REPLY
+        reply.inReplyTo = request_id
+        reply.reply.type = rpc.Reply.RESULT
+        reply.reply.result.id = request.fire.id
+        reply.reply.result.payload = result_payload
+        return reply.SerializeToString()
