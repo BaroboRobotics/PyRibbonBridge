@@ -77,16 +77,13 @@ Now you should be able to use the proxy::
 '''
 
 import asyncio
-import concurrent.futures
 import functools
 import importlib.util
 import inspect
-import itertools
 import logging
 import os
 import random
 import sys
-import threading
 
 __path = sys.path
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
@@ -190,7 +187,7 @@ class _RpcProxyImpl():
         This function should transmit 'bytestring' to the server objects
         receiver.
         '''
-        pass
+        raise NotImplementedError
 
     def add_broadcast_handler(self, procedure_name, coroutine):
         self._bcast_handlers[rb_hash(procedure_name)] = coroutine
@@ -286,8 +283,7 @@ class Proxy():
         Handshake with the server object.
         '''
         fut = yield from self._rpc.get_versions()
-        versions = yield from fut
-        self.logger.info('Connection established: {}'.format(versions))
+        return fut
 
     @asyncio.coroutine
     def rb_disconnect(self):
@@ -353,7 +349,7 @@ class Proxy():
         This function should transmit 'bytestring' to the server objects
         receiver where 'bytestring' is the raw serialized protobuf message.
         '''
-        pass
+        raise NotImplementedError
 
     def __getattr__(self, name):
         if name not in self._members:
