@@ -15,12 +15,12 @@ README = codecs.open(os.path.join(here, 'README.rst'), encoding='utf8').read()
 setup (name = 'PyRibbonBridge',
        author = 'David Ko',
        author_email = 'david@barobo.com',
-       version = '0.1.1',
+       version = '0.1.2',
        description = "This is a pure Python implementation of ribbon-bridge: An "
        "RPC Framework http://github.com/BaroboRobotics/ribbon-bridge",
        long_description = README,
        package_dir = {'':'src'},
        packages = ['ribbonbridge'],
        url = 'http://github.com/BaroboRobotics/PyRibbonBridge',
-       install_requires=['protobuf>=3.0.0b2'],
+       install_requires=['protobuf>=3.0.0'],
        )
